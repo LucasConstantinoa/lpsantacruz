@@ -1,0 +1,5 @@
+2:import { supabase } from './lib/supabase';
+272:    const { data, error: signInError } = await supabase.auth.signInWithPassword({
+356:        const { data, error } = await supabase.from('leads').select('*').order('date', { ascending: false });
+478:                  await supabase.from('leads').delete().not('id', 'is', null);
+764:        supabase.from('leads').insert([currentLead]).catch(() => {});

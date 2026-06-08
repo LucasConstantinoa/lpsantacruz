@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>500 - Erro Interno do Servidor | Prosul</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body {
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle at center, #2d7c91 0%, #1a4a58 100%);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            overflow: hidden;
+        }
+        .container {
+            max-width: 800px;
+            padding: 40px;
+            position: relative;
+            z-index: 2;
+        }
+        .error-bg {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 40vw;
+            font-weight: 900;
+            color: rgba(255, 255, 255, 0.03);
+            white-space: nowrap;
+            letter-spacing: -0.05em;
+            pointer-events: none;
+            z-index: 1;
+            user-select: none;
+        }
+        h1 {
+            font-size: clamp(80px, 15vw, 180px);
+            margin: 0;
+            color: #ffcc00;
+            font-weight: 900;
+            line-height: 0.9;
+            letter-spacing: -0.05em;
+            font-style: italic;
+            text-shadow: 0 0 50px rgba(255, 204, 0, 0.3);
+        }
+        h2 {
+            font-size: clamp(24px, 5vw, 48px);
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: -1px;
+            margin: 10px 0 30px;
+            line-height: 1;
+        }
+        p {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: clamp(16px, 2vw, 20px);
+            line-height: 1.6;
+            margin-bottom: 50px;
+            font-weight: 300;
+            max-width: 500px;
+            mx-auto;
+        }
+        .btn {
+            background-color: #ffcc00;
+            color: #236172;
+            text-decoration: none;
+            padding: 20px 48px;
+            border-radius: 20px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-block;
+            box-shadow: 0 20px 40px rgba(255, 204, 0, 0.2);
+            font-size: 14px;
+        }
+        .btn:hover {
+            transform: translateY(-5px) scale(1.05);
+            background-color: #f7d54d;
+            box-shadow: 0 30px 60px rgba(255, 204, 0, 0.3);
+        }
+        .logo {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-weight: 900;
+            font-size: 24px;
+            letter-spacing: -2px;
+            font-style: italic;
+        }
+        .logo span { color: #ffcc00; }
+    </style>
+</head>
+<body>
+    <div class="error-bg">500</div>
+    <div class="logo">PROSUL<span>®</span></div>
+    <div class="container">
+        <h1>Erro 500</h1>
+        <h2>Imprevistos acontecem</h2>
+        <p>Pedimos desculpas, mas tivemos uma pane seca em nossos servidores. Nossa equipe já está trabalhando para retomar a rota.</p>
+        <a href="/" class="btn">Tentar novamente</a>
+    </div>
+</body>
+</html>

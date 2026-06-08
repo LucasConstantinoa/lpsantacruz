@@ -1,0 +1,50 @@
+{
+  "whatsapp": "https://wa.link/nbje2j",
+  "benefits": [
+    {
+      "id": 1,
+      "title": "Furto / Roubo",
+      "tooltip": "Seja ressarcido em até 100% do valor de tabela FIPE caso seu veículo seja roubado ou furtado."
+    },
+    {
+      "id": 2,
+      "title": "Colisão",
+      "tooltip": "Em caso de acidente, nós providenciamos o conserto do seu veículo."
+    },
+    {
+      "id": 3,
+      "title": "Perda total",
+      "tooltip": "Se o estrago configurar Perda Total, nós iremos indenizá-lo por este prejuízo."
+    },
+    {
+      "id": 4,
+      "title": "Incêndio",
+      "tooltip": "Com a gente o seu veículo fica protegido em casos de incêndio com indenização total ou parcial."
+    },
+    {
+      "id": 5,
+      "title": "Fenômenos naturais",
+      "tooltip": "Se seu veículo for danificado por alagamentos, quedas de árvores ou chuvas de granizo, nós ressarcimos seu prejuízo."
+    },
+    {
+      "id": 6,
+      "title": "Cobertura em todo Brasil",
+      "tooltip": "Não importa onde aconteça o evento, você poderá contar conosco em todo o Brasil."
+    },
+    {
+      "id": 7,
+      "title": "Carro reserva",
+      "tooltip": "Disponha um carro reserva caso aconteça algum imprevisto e o seu precise ir para a oficina."
+    },
+    {
+      "id": 8,
+      "title": "Proteção para terceiros",
+      "tooltip": "Caso você se envolva em um acidente com outro veículo, os consertos são por nossa conta."
+    },
+    {
+      "id": 9,
+      "title": "Cobertura para vidros",
+      "tooltip": "Caso aconteça algum dano com seus vidros, podemos substituí-lo por outro novinho."
+    }
+  ]
+}
