@@ -1467,7 +1467,7 @@ function LandingPage() {
     setShowCookieBanner(false);
   };
 
-  const whatsapp = config?.whatsapp || "5547989229588";
+  const whatsapp = config?.whatsapp || "5551981853517";
 
   return (
     <div className="min-h-screen bg-[#236172] selection:bg-[#ffcc00] selection:text-[#236172] overflow-x-hidden relative">
