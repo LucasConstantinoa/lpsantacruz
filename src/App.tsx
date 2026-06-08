@@ -356,45 +356,23 @@ function AdminLogin() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        // Since the dashboard uses supabase.auth.getSession, we need to handle this.
-        // Actually, for simplicity in this project, we can just set a local storage flag 
-        // if we are bypassing Supabase Auth for this specific admin.
-        // But the dashboard has a check: if (!session) navigate('/admin').
-        // So we should probably still try to sign in to Supabase if possible, 
-        // OR modify the dashboard check.
-        
-        // Let's also try to sign in to Supabase Auth with these credentials 
-        // just in case they are defined there too.
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        
-        if (signInError) {
-          // If Supabase Auth fails but our server API succeeded, 
-          // we can still allow entry if we modify the dashboard check.
-          // For now, let's assume the user wants the server-side check.
-          localStorage.setItem('prosul-admin-session', 'true');
-          navigate('/admin/dashboard');
-        } else {
-          navigate('/admin/dashboard');
-        }
-      } else {
-        setError(data.message || 'Acesso negado');
-      }
-    } catch (err) {
-      setError('Erro ao conectar ao servidor');
+    
+    // Direct check in the code as requested by the user: "deixe esse login no codigo do site"
+    const ADMIN_EMAIL = "admincaio@prosul.com";
+    const ADMIN_PASS = "Santacruz12.";
+
+    const inputEmail = email.toLowerCase().trim();
+    const inputPass = password.trim();
+
+    console.log("DEBUG: Login attempt", { inputEmail, match: inputEmail === ADMIN_EMAIL });
+
+    if (inputEmail === ADMIN_EMAIL && inputPass === ADMIN_PASS) {
+      localStorage.setItem('prosul-admin-session', 'true');
+      navigate('/admin/dashboard');
+    } else {
+      setError('Credenciais incorretas para o painel Prosul.');
     }
   };
 
@@ -505,9 +483,12 @@ function AdminDashboard() {
   useEffect(() => {
     const loadLeads = async () => {
       try {
-        const { data, error } = await supabase.from('leads').select('*').order('date', { ascending: false });
+        const response = await fetch('/api/leads');
+        const data = await response.json();
         if (data) setLeads(data);
-      } catch (e) {}
+      } catch (e) {
+        console.error("Error loading leads from API:", e);
+      }
     };
     loadLeads();
 
