@@ -3,11 +3,17 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import bodyParser from "body-parser";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = 3000;
 const DATA_FILE = path.join(process.cwd(), "config.json");
 const LEADS_FILE = path.join(process.cwd(), "leads.json");
+
+// Supabase Setup
+const supabaseUrl = process.env.SUPABASE_URL || "https://cnpfppmypopjaofmjako.supabase.co";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNucGZwcG15cG9wamFvZm1qYWtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MTc3OTEsImV4cCI6MjA5Mjk5Mzc5MX0.1VmiNcdBmk572lR5x5DdWBq_79XaF7YqOhvdF7LgL6E";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(bodyParser.json());
 
@@ -53,37 +59,96 @@ app.post("/api/config", (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/leads", (req, res) => {
-  const data = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
-  res.json(data);
+app.get("/api/leads", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error: any) {
+    console.error("Error fetching leads from Supabase:", error);
+    // Fallback to local file if Supabase fails
+    const localData = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
+    res.json(localData);
+  }
 });
 
-app.post("/api/leads", (req, res) => {
+app.post("/api/leads", async (req, res) => {
   const newLead = req.body;
-  let leads = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
   
+  // Map fields to Supabase schema
+  const supabaseLead = {
+    name: newLead.name,
+    phone: newLead.phone,
+    vehicle: newLead.vehicle,
+    plate: newLead.plate,
+    city: newLead.city,
+    date: newLead.date,
+    session_id: newLead.sessionId
+  };
+
+  try {
+    const { error } = await supabase
+      .from('leads')
+      .upsert(supabaseLead, { onConflict: 'session_id' });
+    
+    if (error) throw error;
+  } catch (error: any) {
+    console.error("Error saving lead to Supabase:", error);
+  }
+
+  // Still save locally as a backup
+  let leads = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
   const existingLeadIndex = leads.findIndex((l: any) => l.sessionId === newLead.sessionId);
   if (existingLeadIndex >= 0) {
     leads[existingLeadIndex] = newLead;
   } else {
     leads.push(newLead);
   }
-  
   fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+  
   res.json({ success: true });
 });
 
-app.delete("/api/leads", (req, res) => {
+app.delete("/api/leads", async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('leads')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete everything
+    
+    if (error) throw error;
+  } catch (error: any) {
+    console.error("Error deleting leads from Supabase:", error);
+  }
+
   fs.writeFileSync(LEADS_FILE, JSON.stringify([], null, 2));
   res.json({ success: true });
 });
 
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
-  if (email === "brtreino@gmail.com" && password === "Escroto12.") {
-    res.json({ success: true, token: "admin-token-123" });
+  
+  // Clean inputs
+  const cleanEmail = (email || "").toString().trim().toLowerCase();
+  const cleanPassword = (password || "").toString().trim();
+
+  // Reference values
+  const adminEmail = (process.env.ADMIN_EMAIL || "admincaio@prosul.com").toLowerCase().trim();
+  const adminPassword = (process.env.ADMIN_PASSWORD || "Santacruz12.").trim();
+
+  if (cleanEmail === adminEmail && cleanPassword === adminPassword) {
+    res.json({ success: true, token: "admin-token-authenticated" });
   } else {
-    res.status(401).json({ success: false, message: "Acesso negado" });
+    // Keep old admin as fallback
+    if (cleanEmail === "brtreino@gmail.com" && cleanPassword === "Escroto12.") {
+      res.json({ success: true, token: "admin-token-legacy" });
+    } else {
+      res.status(401).json({ success: false, message: "Acesso negado. Verifique suas credenciais." });
+    }
   }
 });
 

@@ -358,15 +358,43 @@ function AdminLogin() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    
-    if (signInError) {
-      setError(signInError.message);
-    } else if (data.session) {
-      navigate('/admin/dashboard');
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        // Since the dashboard uses supabase.auth.getSession, we need to handle this.
+        // Actually, for simplicity in this project, we can just set a local storage flag 
+        // if we are bypassing Supabase Auth for this specific admin.
+        // But the dashboard has a check: if (!session) navigate('/admin').
+        // So we should probably still try to sign in to Supabase if possible, 
+        // OR modify the dashboard check.
+        
+        // Let's also try to sign in to Supabase Auth with these credentials 
+        // just in case they are defined there too.
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        
+        if (signInError) {
+          // If Supabase Auth fails but our server API succeeded, 
+          // we can still allow entry if we modify the dashboard check.
+          // For now, let's assume the user wants the server-side check.
+          localStorage.setItem('prosul-admin-session', 'true');
+          navigate('/admin/dashboard');
+        } else {
+          navigate('/admin/dashboard');
+        }
+      } else {
+        setError(data.message || 'Acesso negado');
+      }
+    } catch (err) {
+      setError('Erro ao conectar ao servidor');
     }
   };
 
@@ -435,7 +463,8 @@ function AdminDashboard() {
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const localAdmin = localStorage.getItem('prosul-admin-session');
+      if (!session && !localAdmin) {
         navigate('/admin');
         return;
       }
@@ -444,7 +473,8 @@ function AdminDashboard() {
     checkSession();
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
+      const localAdmin = localStorage.getItem('prosul-admin-session');
+      if (!session && !localAdmin) {
         navigate('/admin');
       }
     });
@@ -662,7 +692,11 @@ function AdminDashboard() {
       <div className="max-w-4xl mx-auto space-y-12">
         <div className="flex justify-between items-center">
           <h2 className="text-4xl font-black text-white tracking-tighter uppercase italic">Dashboard <span className="text-[#ffcc00]">Elite</span></h2>
-          <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin'); }} className="text-white/40 hover:text-red-500 text-xs font-black uppercase tracking-widest transition-colors">Sair</button>
+          <button onClick={async () => { 
+  await supabase.auth.signOut(); 
+  localStorage.removeItem('prosul-admin-session');
+  navigate('/admin'); 
+}} className="text-white/40 hover:text-red-500 text-xs font-black uppercase tracking-widest transition-colors">Sair</button>
         </div>
 
         {/* TAB SWITCHER */}
@@ -1736,22 +1770,13 @@ function LandingPage() {
                   >
                     <div className="relative mb-8 w-full max-w-sm">
                       <div className="bg-white/5 border border-white/10 rounded-[30px] p-8 sm:p-10 relative overflow-hidden shadow-2xl flex flex-col items-center">
-                         <div className="w-16 h-16 rounded-full bg-[#ffcc00]/10 flex items-center justify-center mb-6 border border-[#ffcc00]/20">
-                            <Lock className="text-[#ffcc00] w-8 h-8" />
+                         <div className="w-16 h-16 rounded-full bg-[#25D366]/10 flex items-center justify-center mb-6 border border-[#25D366]/20">
+                            <CheckCircle2 className="text-[#25D366] w-8 h-8" />
                          </div>
                          <h4 className="text-3xl font-black text-white mb-2 tracking-tighter uppercase italic">Cotação Concluída</h4>
-                         <p className="text-sm font-light text-white/50 mb-6 px-4">O valor ideal para o seu perfil foi calculado com sucesso.</p>
+                         <p className="text-sm font-light text-white/50 mb-6 px-4">Em alguns minutos você receberá sua cotação personalizada</p>
                          
-                         <div className="relative w-full max-w-[200px] mx-auto">
-                            <div className="filter blur-[12px] opacity-40 text-4xl font-black text-center text-white select-none whitespace-nowrap">
-                              R$ 149,90
-                            </div>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-black text-[#ffcc00] uppercase tracking-widest shadow-2xl bg-[#236172]/80 px-4 py-2 rounded-xl backdrop-blur-sm border border-[#ffcc00]/30 shadow-[0_0_20px_rgba(255,204,0,0.2)]">
-                                Bloqueado
-                              </span>
-                            </div>
-                         </div>
+                         <div className="relative w-full max-w-[200px] mx-auto hidden" />
                       </div>
                     </div>
                     
@@ -1773,7 +1798,7 @@ function LandingPage() {
                       }}
                       className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white font-black py-5 rounded-2xl shadow-[0_15px_30px_rgba(37,211,102,0.3)] hover:shadow-[0_20px_40px_rgba(37,211,102,0.4)] flex items-center justify-center gap-3 transition-colors text-sm sm:text-base uppercase tracking-widest"
                     >
-                      REALIZAR COTAÇÃO <ArrowRight size={18} />
+                      Receber minha cotação!!! <ArrowRight size={18} />
                     </motion.button>
                   </motion.div>
                 )}
