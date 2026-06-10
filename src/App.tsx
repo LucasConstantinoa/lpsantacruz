@@ -490,10 +490,33 @@ function AdminDashboard() {
     const loadLeads = async () => {
       try {
         const response = await fetch('/api/leads');
-        const data = await response.json();
-        if (data) setLeads(data);
+        const text = await response.text();
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<')) {
+          throw new Error("HTML response received instead of JSON (typical on Vercel/Static hosting redirect)");
+        }
+        const data = JSON.parse(text);
+        if (data && Array.isArray(data)) {
+          setLeads(data);
+          return;
+        }
       } catch (e) {
-        console.error("Error loading leads from API:", e);
+        // Fallback directly to querying Supabase leads table if backend is not running/responsive
+        try {
+          const { data, error } = await supabase
+            .from('leads')
+            .select('*');
+          if (!error && data) {
+            const sorted = [...data].sort((a, b) => {
+              const dateA = new Date(a.date || a.created_at || 0).getTime();
+              const dateB = new Date(b.date || b.created_at || 0).getTime();
+              return dateB - dateA;
+            });
+            setLeads(sorted);
+            return;
+          }
+        } catch (supabaseErr) {
+          console.error("Supabase fallback query catch error:", supabaseErr);
+        }
       }
     };
     loadLeads();
@@ -1470,7 +1493,21 @@ function LandingPage() {
         supabase
           .from('leads')
           .upsert(payload, { onConflict: 'session_id' })
-          .catch(() => {}); // silent catch to prevent red runtime errors in browser
+          .then(({ error }) => {
+            if (error) {
+              const { city, ...cleanPayload } = payload;
+              supabase
+                .from('leads')
+                .upsert(cleanPayload, { onConflict: 'session_id' })
+                .then(({ error: retryErr }) => {
+                  if (retryErr) {
+                    supabase.from('leads').insert(cleanPayload).catch(() => {});
+                  }
+                })
+                .catch(() => {});
+            }
+          })
+          .catch(() => {});
 
         // 2. Fallback backend upsert/JSON file save to guarantee bypass of any client-side adblockers
         fetch('/api/leads', {
