@@ -24,7 +24,8 @@ app.use((req, res, next) => {
 
 // Initial data
 const defaultData = {
-  whatsapp: "",
+  whatsapp: "5547989229588",
+  whatsapp_options: ["5547989229588"],
   benefits: [
     { id: 1, title: "Furto / Roubo", tooltip: "Seja ressarcido em até 100% do valor de tabela FIPE caso seu veículo seja roubado ou furtado." },
     { id: 2, title: "Colisão", tooltip: "Em caso de acidente, nós providenciamos o conserto do seu veículo." },

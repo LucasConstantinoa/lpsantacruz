@@ -49,7 +49,8 @@ import {
   Lock,
   Filter,
   Search,
-  Trash2
+  Trash2,
+  Plus
 } from 'lucide-react';
 
 import susepLogo from './assets/susep_approved_seal_final_1780531757778.png';
@@ -460,11 +461,16 @@ function AdminDashboard() {
     const loadConfig = async () => {
       const { data, error } = await supabase.from('config').select('*').eq('id', 1).single();
       if (data) {
-        setConfig(data);
+        // Ensure default values for new structure
+        setConfig({
+          ...data,
+          whatsapp_options: data.whatsapp_options || [data.whatsapp || '5547989229588'],
+        });
       } else {
         setConfig({ 
           id: 1,
           whatsapp: '5547989229588',
+          whatsapp_options: ['5547989229588'],
           benefits: [
             { id: '1', title: 'Assistência 24h', tooltip: 'Socorro elétrico, mecânico e reboque disponível 24 horas.' },
             { id: '2', title: 'Proteção contra Roubo', tooltip: 'Cobertura completa contra roubo e furto qualificado.' }
@@ -705,15 +711,61 @@ function AdminDashboard() {
         {activeTab === 'config' ? (
           <div className="prosul-card p-10 rounded-[40px] space-y-8 bg-[#2d7c91]/40">
             <div className="space-y-4">
-              <h3 className="text-[#ffcc00] font-black uppercase tracking-widest text-sm">Geral e Imagens</h3>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40 ml-4">WhatsApp (DDI + DDD + Numero)</label>
-                <input 
-                  type="text"
-                  value={config.whatsapp}
-                  onChange={(e) => setConfig({ ...config, whatsapp: e.target.value })}
-                  className="w-full bg-[#236172] border border-white/5 rounded-2xl py-4 px-6 text-white focus:border-[#ffcc00]/50 outline-none transition-all"
-                />
+              <h3 className="text-[#ffcc00] font-black uppercase tracking-widest text-sm">Canais de Atendimento (WhatsApp)</h3>
+              <p className="text-[10px] text-white/30 italic -mt-2">Escolha para qual número o lead será direcionado ao finalizar a cotação.</p>
+              
+              <div className="grid gap-4">
+                {(config.whatsapp_options || [config.whatsapp]).map((number: string, idx: number) => (
+                  <div key={idx} className={cn("flex items-center gap-4 bg-[#236172] p-4 rounded-2xl border transition-all", config.whatsapp === number ? "border-[#ffcc00]/50 bg-[#236172]/80" : "border-white/5")}>
+                    <button 
+                      onClick={() => setConfig({ ...config, whatsapp: number })}
+                      className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all", config.whatsapp === number ? "border-[#ffcc00] bg-[#ffcc00]" : "border-white/20")}
+                    >
+                      {config.whatsapp === number && <div className="w-2 h-2 bg-[#236172] rounded-full" />}
+                    </button>
+                    
+                    <input 
+                      type="text"
+                      value={number}
+                      onChange={(e) => {
+                        const newOptions = [...(config.whatsapp_options || [config.whatsapp])];
+                        newOptions[idx] = e.target.value;
+                        const newConfig = { ...config, whatsapp_options: newOptions };
+                        if (config.whatsapp === number) newConfig.whatsapp = e.target.value;
+                        setConfig(newConfig);
+                      }}
+                      className="flex-1 bg-transparent text-white font-black tracking-widest outline-none"
+                      placeholder="5500900000000"
+                    />
+
+                    <button 
+                      onClick={() => {
+                        const newOptions = (config.whatsapp_options || [config.whatsapp]).filter((_: any, i: number) => i !== idx);
+                        if (newOptions.length === 0) return;
+                        const newConfig = { ...config, whatsapp_options: newOptions };
+                        if (config.whatsapp === number) newConfig.whatsapp = newOptions[0];
+                        setConfig(newConfig);
+                      }}
+                      className="text-red-400 hover:text-red-300 p-2"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                
+                <button 
+                  onClick={() => {
+                    const newOptions = [...(config.whatsapp_options || [config.whatsapp]), ''];
+                    setConfig({ ...config, whatsapp_options: newOptions });
+                  }}
+                  className="w-full py-4 border border-dashed border-white/10 rounded-2xl text-white/40 text-[10px] font-black uppercase tracking-widest hover:border-[#ffcc00]/30 hover:text-white transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus size={14} /> Adicionar Novo Consultor
+                </button>
+              </div>
+
+              <div className="pt-6">
+                 <h3 className="text-[#ffcc00] font-black uppercase tracking-widest text-sm">Geral e Imagens</h3>
               </div>
 
               <div className="grid md:grid-cols-2 gap-4">
@@ -1214,6 +1266,7 @@ const SafetyComparisonSection = ({ cleanImg, crashedImg }: { cleanImg: string, c
 };
 
 function LandingPage() {
+  const navigate = useNavigate();
   const [showAppOptions, setShowAppOptions] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1357,12 +1410,22 @@ function LandingPage() {
 
     lenisRef.current = lenis;
 
+    // Synchronize ScrollTrigger with Lenis
+    lenis.on('scroll', () => {
+      ScrollTrigger.update();
+    });
+
     function raf(time: number) {
       lenis.raf(time);
       requestAnimationFrame(raf);
     }
 
     requestAnimationFrame(raf);
+
+    // Refresh ScrollTrigger after potential layout shifts
+    const refreshTimeout = setTimeout(() => {
+      ScrollTrigger.refresh();
+    }, 1000);
 
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
@@ -1375,6 +1438,7 @@ function LandingPage() {
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      clearTimeout(refreshTimeout);
       lenis.destroy();
     };
   }, []);
@@ -1482,7 +1546,7 @@ function LandingPage() {
     setShowCookieBanner(false);
   };
 
-  const whatsapp = config?.whatsapp || "5551981853517";
+  const whatsapp = config?.whatsapp || "5547989229588";
 
   return (
     <div className="min-h-screen bg-[#236172] selection:bg-[#ffcc00] selection:text-[#236172] overflow-x-hidden relative">
@@ -1495,11 +1559,16 @@ function LandingPage() {
       {/* Floating Action Buttons */}
       <div className="fixed bottom-24 right-6 md:bottom-12 md:right-12 z-50 flex flex-col gap-4 md:gap-6 items-end justify-end pointer-events-none">
         <motion.div
-          className="icon-3d icon-ig pointer-events-auto group relative cursor-pointer"
+          className="icon-3d icon-ig pointer-events-auto group relative cursor-pointer will-change-transform"
           tabIndex={0}
           initial={{ opacity: 0, y: 100 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.1, type: "spring" }}
+          transition={{ 
+            delay: 0.5, 
+            type: "spring",
+            stiffness: 260,
+            damping: 20
+          }}
         >
           <div className="layer-3d">
             <span />
@@ -2005,10 +2074,10 @@ function LandingPage() {
                     <motion.button 
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      type="submit"
+                      onClick={() => navigate('/admin/dashboard')}
                       className="w-full bg-[#ffcc00] hover:bg-[#e6b800] text-[#236172] font-black py-4 rounded-xl flex justify-center items-center gap-2 transition-colors uppercase tracking-widest text-sm mt-4"
                     >
-                      RECEBER COTAÇÃO NO WHATSAPP <ArrowRight size={18} />
+                      ACESSAR MEUS LEADS <ArrowRight size={18} />
                     </motion.button>
 
                     <div className="flex flex-col items-center gap-2 mt-6 transition-all duration-500">
