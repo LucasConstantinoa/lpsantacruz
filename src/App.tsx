@@ -1455,28 +1455,34 @@ function LandingPage() {
   useEffect(() => {
     if (formData.name || formData.phone || formData.vehicle || formData.plate || formData.city) {
       const timeoutId = setTimeout(() => {
-        console.log("DEBUG: Upserting lead to Supabase:", formData);
-        const currentLead = {
+        const payload = {
           name: formData.name,
           phone: formData.phone,
           vehicle: formData.vehicle,
           plate: formData.plate,
           city: formData.city,
           date: new Date().toISOString(),
+          sessionId: sessionId,
           session_id: sessionId
         };
 
+        // 1. Silent direct frontend Supabase upsert (graceful fallback)
         supabase
           .from('leads')
-          .upsert(currentLead, { onConflict: 'session_id' })
-          .then(({ data, error }) => {
-            if (error) {
-              console.error("DEBUG: Upsert error:", error);
-            } else {
-              console.log("DEBUG: Upsert success, data:", data);
-            }
-          })
-          .catch(e => console.error("DEBUG: Upsert catch:", e));
+          .upsert(payload, { onConflict: 'session_id' })
+          .catch(() => {}); // silent catch to prevent red runtime errors in browser
+
+        // 2. Fallback backend upsert/JSON file save to guarantee bypass of any client-side adblockers
+        fetch('/api/leads', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .catch(() => {});
+
       }, 50); // Gravar instantaneamente
       
       return () => clearTimeout(timeoutId);
@@ -2074,10 +2080,10 @@ function LandingPage() {
                     <motion.button 
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => navigate('/admin/dashboard')}
+                      type="submit"
                       className="w-full bg-[#ffcc00] hover:bg-[#e6b800] text-[#236172] font-black py-4 rounded-xl flex justify-center items-center gap-2 transition-colors uppercase tracking-widest text-sm mt-4"
                     >
-                      ACESSAR MEUS LEADS <ArrowRight size={18} />
+                      RECEBER COTAÇÃO NO WHATSAPP <ArrowRight size={18} />
                     </motion.button>
 
                     <div className="flex flex-col items-center gap-2 mt-6 transition-all duration-500">

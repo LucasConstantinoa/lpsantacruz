@@ -61,55 +61,170 @@ app.post("/api/config", (req, res) => {
 });
 
 app.get("/api/leads", async (req, res) => {
+  let localLeads: any[] = [];
   try {
-    const { data, error } = await supabase
+    if (fs.existsSync(LEADS_FILE)) {
+      localLeads = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
+    }
+  } catch (err) {
+    console.error("Error reading local leads:", err);
+  }
+
+  try {
+    const { data: supabaseLeads, error } = await supabase
       .from('leads')
       .select('*')
       .order('created_at', { ascending: false });
     
-    if (error) throw error;
-    res.json(data || []);
+    if (error) {
+      console.warn("Supabase fetch returned error (using local backup):", error.message);
+      res.json(localLeads);
+      return;
+    }
+
+    // Merge logic: merge supabaseLeads and localLeads by session_id/sessionId
+    const mergedMap = new Map<string, any>();
+
+    // First, load local leads as the baseline (contain accurate 'city', etc.)
+    localLeads.forEach(lead => {
+      const sId = lead.session_id || lead.sessionId;
+      if (sId) {
+        mergedMap.set(sId, lead);
+      }
+    });
+
+    // Then, merge/update with any leads returned from Supabase
+    if (Array.isArray(supabaseLeads)) {
+      supabaseLeads.forEach(lead => {
+        const sId = lead.session_id || lead.sessionId;
+        if (sId) {
+          const existing = mergedMap.get(sId);
+          if (existing) {
+            // Merge fields, preferring non-empty values
+            mergedMap.set(sId, {
+              ...existing,
+              ...lead,
+              // Retain values if they are present in existing but missing in Supabase due to schema
+              city: existing.city || lead.city,
+              date: existing.date || lead.date || lead.created_at,
+            });
+          } else {
+            mergedMap.set(sId, lead);
+          }
+        }
+      });
+    }
+
+    // Convert to sorted array (newest first)
+    const mergedLeads = Array.from(mergedMap.values()).sort((a, b) => {
+      const dateA = new Date(a.date || a.created_at || 0).getTime();
+      const dateB = new Date(b.date || b.created_at || 0).getTime();
+      return dateB - dateA;
+    });
+
+    res.json(mergedLeads);
   } catch (error: any) {
     console.error("Error fetching leads from Supabase:", error);
-    // Fallback to local file if Supabase fails
-    const localData = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
-    res.json(localData);
+    res.json(localLeads);
   }
 });
 
 app.post("/api/leads", async (req, res) => {
   const newLead = req.body;
+  const sId = newLead.sessionId || newLead.session_id;
   
   // Map fields to Supabase schema
-  const supabaseLead = {
+  const supabaseLead: any = {
     name: newLead.name,
     phone: newLead.phone,
     vehicle: newLead.vehicle,
     plate: newLead.plate,
     city: newLead.city,
     date: newLead.date,
-    session_id: newLead.sessionId
+    session_id: sId
   };
 
   try {
+    // Attempt standard upsert
     const { error } = await supabase
       .from('leads')
       .upsert(supabaseLead, { onConflict: 'session_id' });
     
-    if (error) throw error;
+    if (error) {
+      const isMissingCity = error.code === 'PGRST204' || error.message?.includes('city');
+      const isRLSViolation = error.code === '42501' || error.message?.includes('row-level security');
+
+      if (isMissingCity) {
+        console.warn("Supabase 'leads' is missing the 'city' column, retrying clean payload...");
+        const { city, ...cleanLead } = supabaseLead;
+        const retryResult = await supabase
+          .from('leads')
+          .upsert(cleanLead, { onConflict: 'session_id' });
+        
+        if (retryResult.error) {
+          if (retryResult.error.code === '42501') {
+            await supabase.from('leads').insert(cleanLead);
+          } else {
+            throw retryResult.error;
+          }
+        }
+      } else if (isRLSViolation) {
+        console.warn("Supabase RLS is targeting upsert, executing fall-back insert...");
+        const insertResult = await supabase
+          .from('leads')
+          .insert(supabaseLead);
+          
+        if (insertResult.error) {
+          if (insertResult.error.code === 'PGRST204' || insertResult.error.message?.includes('city')) {
+            const { city, ...cleanLead } = supabaseLead;
+            await supabase.from('leads').insert(cleanLead);
+          } else {
+            throw insertResult.error;
+          }
+        }
+      } else {
+        throw error;
+      }
+    }
   } catch (error: any) {
-    console.error("Error saving lead to Supabase:", error);
+    console.warn("Supabase sync issue (safely decoupled):", error.message || error);
   }
 
-  // Still save locally as a backup
-  let leads = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
-  const existingLeadIndex = leads.findIndex((l: any) => l.sessionId === newLead.sessionId);
-  if (existingLeadIndex >= 0) {
-    leads[existingLeadIndex] = newLead;
-  } else {
-    leads.push(newLead);
+  // Always save locally as a guaranteed primary/backup store to leads.json
+  let leads = [];
+  try {
+    if (fs.existsSync(LEADS_FILE)) {
+      leads = JSON.parse(fs.readFileSync(LEADS_FILE, "utf-8"));
+    }
+  } catch (e) {
+    console.error("Error reading leads file:", e);
   }
-  fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+
+  const existingLeadIndex = leads.findIndex((l: any) => {
+    const itemSid = l.sessionId || l.session_id;
+    return itemSid === sId;
+  });
+
+  const normalizedLead = {
+    ...newLead,
+    sessionId: sId,
+    session_id: sId
+  };
+
+  if (existingLeadIndex >= 0) {
+    leads[existingLeadIndex] = {
+      ...leads[existingLeadIndex],
+      ...normalizedLead
+    };
+  } else {
+    leads.push(normalizedLead);
+  }
+
+  try {
+    fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+  } catch (e) {
+    console.error("Error writing leads file:", e);
+  }
   
   res.json({ success: true });
 });
