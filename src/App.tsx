@@ -487,29 +487,47 @@ function AdminDashboard() {
     });
 
     const loadConfig = async () => {
-      const { data, error } = await supabase.from('config').select('*').eq('id', 1).single();
-      if (data) {
-        let benefitsArray = [];
-        let whatsapp_options = data.whatsapp_options;
-        let whatsapp_contact = data.whatsapp_contact;
-        
-        if (data.benefits) {
-          if (Array.isArray(data.benefits)) {
-            benefitsArray = data.benefits;
-          } else if (typeof data.benefits === 'object') {
-            benefitsArray = data.benefits.items || [];
-            if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
-            if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+      try {
+        const { data, error } = await supabase.from('config').select('*').eq('id', 1).single();
+        if (data) {
+          let benefitsArray = [];
+          let whatsapp_options = data.whatsapp_options;
+          let whatsapp_contact = data.whatsapp_contact;
+          
+          if (data.benefits) {
+            if (Array.isArray(data.benefits)) {
+              benefitsArray = data.benefits;
+            } else if (typeof data.benefits === 'object') {
+              benefitsArray = data.benefits.items || [];
+              if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
+              if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+            }
           }
-        }
 
-        setConfig({
-          ...data,
-          benefits: benefitsArray,
-          whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
-          whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
-        });
-      } else {
+          setConfig({
+            ...data,
+            benefits: benefitsArray,
+            whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
+            whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
+          });
+        } else {
+          setConfig({ 
+            id: 1,
+            whatsapp: '5547989229588',
+            whatsapp_options: ['5547989229588'],
+            whatsapp_contact: '5547989229588',
+            benefits: [
+              { id: '1', title: 'Assistência 24h', tooltip: 'Socorro elétrico, mecânico e reboque disponível 24 horas.' },
+              { id: '2', title: 'Proteção contra Roubo', tooltip: 'Cobertura completa contra roubo e furto qualificado.' }
+            ],
+            cleanCarImg: '',
+            crashedCarImg: '',
+            google_sheets_url: '',
+            google_sheets_active: false
+          });
+        }
+      } catch (err) {
+        console.error("Error loading config inside AdminDashboard, using local default:", err);
         setConfig({ 
           id: 1,
           whatsapp: '5547989229588',
@@ -532,11 +550,30 @@ function AdminDashboard() {
 
   useEffect(() => {
     const loadLeads = async () => {
+      // 1. Prioritize querying the live cloud database (Supabase) so that leads appear immediately
+      try {
+        const { data, error } = await supabase
+          .from('leads')
+          .select('*');
+        if (!error && data) {
+          const sorted = [...data].sort((a, b) => {
+            const dateA = new Date(a.date || a.created_at || 0).getTime();
+            const dateB = new Date(b.date || b.created_at || 0).getTime();
+            return dateB - dateA;
+          });
+          setLeads(sorted);
+          return;
+        }
+      } catch (supabaseErr) {
+        console.error("Supabase direct query failed inside AdminDashboard, trying local API:", supabaseErr);
+      }
+
+      // 2. Fallback to endpoint API
       try {
         const response = await fetch('/api/leads');
         const text = await response.text();
         if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<')) {
-          throw new Error("HTML response received instead of JSON (typical on Vercel/Static hosting redirect)");
+          throw new Error("HTML response received instead of JSON");
         }
         const data = JSON.parse(text);
         if (data && Array.isArray(data)) {
@@ -544,43 +581,33 @@ function AdminDashboard() {
           return;
         }
       } catch (e) {
-        // Fallback directly to querying Supabase leads table if backend is not running/responsive
-        try {
-          const { data, error } = await supabase
-            .from('leads')
-            .select('*');
-          if (!error && data) {
-            const sorted = [...data].sort((a, b) => {
-              const dateA = new Date(a.date || a.created_at || 0).getTime();
-              const dateB = new Date(b.date || b.created_at || 0).getTime();
-              return dateB - dateA;
-            });
-            setLeads(sorted);
-            return;
-          }
-        } catch (supabaseErr) {
-          console.error("Supabase fallback query catch error:", supabaseErr);
-        }
+        console.warn("Failed loading leads from local JSON backend:", e);
       }
     };
+    
     loadLeads();
 
     const loadAdmins = async () => {
-      const { data } = await supabase.from('admin_profiles').select('*').order('created_at', { ascending: false });
-      if (data) setAdmins(data);
+      try {
+        const { data } = await supabase.from('admin_profiles').select('*').order('created_at', { ascending: false });
+        if (data) setAdmins(data);
+      } catch (err) {
+        console.warn("Could not load admin profiles list directly:", err);
+      }
     };
     loadAdmins();
     
-    // Poll for changes in case Realtime is not enabled
+    // Poll for changes in case Realtime channel subscription is blocked or delayed (every 4 seconds)
     const intervalId = setInterval(() => {
       loadLeads();
       loadAdmins();
-    }, 500);
+    }, 4000);
 
-    // Subscribe to changes in the 'leads' table
+    // Subscribe to changes in the 'leads' table for instant reactive updates in browser
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        console.log("Realtime event detected on 'leads' table, reloading leads...");
         loadLeads();
       })
       .subscribe();
@@ -1685,6 +1712,55 @@ function LandingPage() {
     e.preventDefault();
     setLeadStatus('loading');
     setModalOpen(true);
+
+    const finalPayload = {
+      name: formData.name,
+      phone: formData.phone,
+      vehicle: formData.vehicle,
+      plate: formData.plate,
+      city: formData.city,
+      date: new Date().toISOString(),
+      sessionId: sessionId,
+      session_id: sessionId
+    };
+
+    // 1. Explicit immediate save to cloud database (Supabase) to guarantee immediate display in Admin Panel
+    (async () => {
+      try {
+        console.log("LOG: Explicitly saving final lead payload to Supabase...", finalPayload);
+        const { error } = await supabase
+          .from('leads')
+          .upsert(finalPayload, { onConflict: 'session_id' });
+        
+        if (error) {
+          console.warn("Direct upsert failed on final save, trying fallback without city column...");
+          const { city, ...cleanPayload } = finalPayload;
+          const { error: retryErr } = await supabase
+            .from('leads')
+            .upsert(cleanPayload, { onConflict: 'session_id' });
+          
+          if (retryErr) {
+            console.error("Fallback upsert failed, trying direct insert...");
+            await supabase.from('leads').insert(cleanPayload);
+          }
+        }
+      } catch (err) {
+        console.error("Direct final Supabase save failed:", err);
+      }
+    })();
+
+    // 2. Fallback backend upsert/JSON file save for dev/local storage
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(finalPayload)
+    })
+    .then(res => res.json())
+    .catch((err) => {
+      console.warn("Backend API save failed (okay if running static host):", err);
+    });
     
     // Wait 3 seconds simulating query before showing success blur card
     setTimeout(() => {
