@@ -1661,13 +1661,12 @@ function LandingPage() {
     if (formData.name || formData.phone || formData.vehicle || formData.plate || formData.city) {
       const timeoutId = setTimeout(() => {
         const payload = {
-          name: formData.name,
-          phone: formData.phone,
-          vehicle: formData.vehicle,
-          plate: formData.plate,
-          city: formData.city,
+          name: formData.name || '',
+          phone: formData.phone || '',
+          vehicle: formData.vehicle || '',
+          plate: formData.plate || '',
+          city: formData.city || '',
           date: new Date().toISOString(),
-          sessionId: sessionId,
           session_id: sessionId
         };
 
@@ -1679,12 +1678,14 @@ function LandingPage() {
               .upsert(payload, { onConflict: 'session_id' });
             
             if (error) {
+              console.warn("Direct upsert with city column failed, retrying clean payload...", error.message);
               const { city, ...cleanPayload } = payload;
               const { error: retryErr } = await supabase
                 .from('leads')
                 .upsert(cleanPayload, { onConflict: 'session_id' });
               
               if (retryErr) {
+                console.error("Direct fallback upsert failed, playing safe with direct insert...", retryErr.message);
                 await supabase.from('leads').insert(cleanPayload);
               }
             }
@@ -1731,13 +1732,12 @@ function LandingPage() {
     setModalOpen(true);
 
     const finalPayload = {
-      name: formData.name,
-      phone: formData.phone,
-      vehicle: formData.vehicle,
-      plate: formData.plate,
-      city: formData.city,
+      name: formData.name || '',
+      phone: formData.phone || '',
+      vehicle: formData.vehicle || '',
+      plate: formData.plate || '',
+      city: formData.city || '',
       date: new Date().toISOString(),
-      sessionId: sessionId,
       session_id: sessionId
     };
 
@@ -1750,14 +1750,14 @@ function LandingPage() {
           .upsert(finalPayload, { onConflict: 'session_id' });
         
         if (error) {
-          console.warn("Direct upsert failed on final save, trying fallback without city column...");
+          console.warn("Direct upsert failed on final save, trying fallback without city column...", error.message);
           const { city, ...cleanPayload } = finalPayload;
           const { error: retryErr } = await supabase
             .from('leads')
             .upsert(cleanPayload, { onConflict: 'session_id' });
           
           if (retryErr) {
-            console.error("Fallback upsert failed, trying direct insert...");
+            console.error("Fallback upsert failed, trying direct insert...", retryErr.message);
             await supabase.from('leads').insert(cleanPayload);
           }
         }
