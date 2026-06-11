@@ -108,8 +108,8 @@ BEGIN
 
   -- Admin 3
   DECLARE
-    admin_email TEXT := 'mateusviana@gmail.com';
-    admin_password TEXT := 'Mateus12.';
+    admin_email TEXT := 'admincaio@prosul.com';
+    admin_password TEXT := 'Santacruz12.';
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = admin_email) THEN
       uid := gen_random_uuid();

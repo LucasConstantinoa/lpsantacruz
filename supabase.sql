@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.leads (
 CREATE TABLE IF NOT EXISTS public.config (
     id INT PRIMARY KEY DEFAULT 1,
     whatsapp TEXT,
+    whatsapp_options JSONB DEFAULT '[]'::jsonb,
+    whatsapp_contact TEXT,
     benefits JSONB,
     google_sheets_url TEXT,
     google_sheets_active BOOLEAN DEFAULT false
@@ -25,6 +27,8 @@ ALTER TABLE public.config ADD COLUMN IF NOT EXISTS "cleanCarImg" TEXT;
 ALTER TABLE public.config ADD COLUMN IF NOT EXISTS "crashedCarImg" TEXT;
 ALTER TABLE public.config ADD COLUMN IF NOT EXISTS "google_sheets_url" TEXT;
 ALTER TABLE public.config ADD COLUMN IF NOT EXISTS "google_sheets_active" BOOLEAN;
+ALTER TABLE public.config ADD COLUMN IF NOT EXISTS whatsapp_options JSONB;
+ALTER TABLE public.config ADD COLUMN IF NOT EXISTS whatsapp_contact TEXT;
 
 -- Turn on row level security to prevent unauthorized access
 ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;

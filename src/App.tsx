@@ -12,7 +12,9 @@ import { useGSAP } from '@gsap/react';
 
 gsap.registerPlugin(ScrollTrigger);
 
+// @ts-ignore
 import cleanCarImg from './assets/carro-novo.png';
+// @ts-ignore
 import crashedCarImg from './assets/carro-batido.png';
 
 
@@ -53,6 +55,7 @@ import {
   Plus
 } from 'lucide-react';
 
+// @ts-ignore
 import susepLogo from './assets/susep_approved_seal_final_1780531757778.png';
 
 const cn = (...inputs: ClassValue[]) => {
@@ -357,8 +360,9 @@ function AdminLogin() {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     
     // Direct check in the code as requested by the user: "deixe esse login no codigo do site"
     const ADMIN_EMAIL = "admincaio@prosul.com";
@@ -370,9 +374,33 @@ function AdminLogin() {
     console.log("DEBUG: Login attempt", { inputEmail, match: inputEmail === ADMIN_EMAIL });
 
     if (inputEmail === ADMIN_EMAIL && inputPass === ADMIN_PASS) {
+      // Direct hardcoded login bypass
+      try {
+        // Authenticate with Supabase so that delete lead and config edits pass RLS check safely
+        await supabase.auth.signInWithPassword({
+          email: inputEmail,
+          password: inputPass
+        });
+      } catch (authErr) {
+        console.warn("Direct Supabase login failed or not configured, falling back to local session:", authErr);
+      }
       localStorage.setItem('prosul-admin-session', 'true');
       navigate('/admin/dashboard');
     } else {
+      // Dynamic fallback for other administrators registered in Auth
+      try {
+        const { error: authError } = await supabase.auth.signInWithPassword({
+          email: inputEmail,
+          password: inputPass
+        });
+        if (!authError) {
+          localStorage.setItem('prosul-admin-session', 'true');
+          navigate('/admin/dashboard');
+          return;
+        }
+      } catch (err) {
+        console.error("Dynamic dashboard signin failed:", err);
+      }
       setError('Credenciais incorretas para o painel Prosul.');
     }
   };
@@ -461,16 +489,32 @@ function AdminDashboard() {
     const loadConfig = async () => {
       const { data, error } = await supabase.from('config').select('*').eq('id', 1).single();
       if (data) {
-        // Ensure default values for new structure
+        let benefitsArray = [];
+        let whatsapp_options = data.whatsapp_options;
+        let whatsapp_contact = data.whatsapp_contact;
+        
+        if (data.benefits) {
+          if (Array.isArray(data.benefits)) {
+            benefitsArray = data.benefits;
+          } else if (typeof data.benefits === 'object') {
+            benefitsArray = data.benefits.items || [];
+            if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
+            if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+          }
+        }
+
         setConfig({
           ...data,
-          whatsapp_options: data.whatsapp_options || [data.whatsapp || '5547989229588'],
+          benefits: benefitsArray,
+          whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
+          whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
         });
       } else {
         setConfig({ 
           id: 1,
           whatsapp: '5547989229588',
           whatsapp_options: ['5547989229588'],
+          whatsapp_contact: '5547989229588',
           benefits: [
             { id: '1', title: 'Assistência 24h', tooltip: 'Socorro elétrico, mecânico e reboque disponível 24 horas.' },
             { id: '2', title: 'Proteção contra Roubo', tooltip: 'Cobertura completa contra roubo e furto qualificado.' }
@@ -581,16 +625,38 @@ function AdminDashboard() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { data, error } = await supabase.from('config').upsert(config);
-      if (error) {
-          console.error("Supabase Error:", error);
-          throw error;
+      // Direct upsert attempt (handles cases where the columns have been created)
+      const { data, error: directError } = await supabase.from('config').upsert(config);
+      
+      if (directError) {
+        console.warn("Direct upsert failed, trying safe nested fallback:", directError);
+        
+        // Prepare payload stripped of potential missing columns, nested in JSONB benefits field
+        const safeBenefits = {
+          items: Array.isArray(config.benefits) ? config.benefits : [],
+          whatsapp_options: config.whatsapp_options,
+          whatsapp_contact: config.whatsapp_contact
+        };
+
+        const fallbackConfig = {
+          id: config.id,
+          whatsapp: config.whatsapp,
+          google_sheets_url: config.google_sheets_url,
+          google_sheets_active: config.google_sheets_active,
+          cleanCarImg: config.cleanCarImg,
+          crashedCarImg: config.crashedCarImg,
+          benefits: safeBenefits
+        };
+
+        const { error: fallbackError } = await supabase.from('config').upsert(fallbackConfig);
+        if (fallbackError) throw fallbackError;
       }
+      
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Erro ao salvar configurações.');
+      alert('Erro ao salvar as configurações: ' + (err.message || 'Erro desconhecido'));
     }
     setSaving(false);
   };
@@ -785,6 +851,43 @@ function AdminDashboard() {
                 >
                   <Plus size={14} /> Adicionar Novo Consultor
                 </button>
+              </div>
+
+              <div className="pt-6 border-t border-white/10 space-y-4">
+                <h3 className="text-[#ffcc00] font-black uppercase tracking-widest text-[#ffcc00]/90 text-sm">WhatsApp de Contato (Menu / Header / Rodapé)</h3>
+                <p className="text-[10px] text-white/40 italic -mt-2">Escolha ou digite qual número específico será o destino do botão "Contato" no cabeçalho e rodapé do site.</p>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {(config.whatsapp_options || [config.whatsapp]).map((opt: string, optIdx: number) => {
+                      if (!opt) return null;
+                      return (
+                        <button
+                          key={optIdx}
+                          type="button"
+                          onClick={() => setConfig({ ...config, whatsapp_contact: opt })}
+                          className={cn(
+                            "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                            config.whatsapp_contact === opt 
+                              ? "bg-[#ffcc00] text-[#236172] border-[#ffcc00]" 
+                              : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                          )}
+                        >
+                          Usar Consultor {optIdx + 1}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input 
+                    type="text"
+                    value={config.whatsapp_contact || ''}
+                    onChange={(e) => setConfig({ ...config, whatsapp_contact: e.target.value })}
+                    className="w-full bg-[#236172] border border-white/5 rounded-2xl py-4 px-6 text-white font-black tracking-widest outline-none"
+                    placeholder="Ou digite outro número ex: 5547989229588 (apenas números)"
+                  />
+                  <p className="text-[9px] text-[#ffcc00] uppercase tracking-wider ml-4">
+                    Número atual no botão de Contato: <span className="font-mono text-white bg-black/30 px-2 py-0.5 rounded">{config.whatsapp_contact || config.whatsapp || 'Padrão (Sem configuração)'}</span>
+                  </p>
+                </div>
               </div>
 
               <div className="pt-6">
@@ -1395,7 +1498,29 @@ function LandingPage() {
       const { data, error } = await supabase.from('config').select('*').eq('id', 1).single();
       if (data) {
         console.log("DEBUG: Config fetched:", data);
-        setConfig(data);
+        
+        let benefitsArray = [];
+        let whatsapp_options = data.whatsapp_options;
+        let whatsapp_contact = data.whatsapp_contact;
+        
+        if (data.benefits) {
+          if (Array.isArray(data.benefits)) {
+            benefitsArray = data.benefits;
+          } else if (typeof data.benefits === 'object') {
+            benefitsArray = data.benefits.items || [];
+            if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
+            if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+          }
+        }
+
+        const enrichedConfig = {
+          ...data,
+          benefits: benefitsArray,
+          whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
+          whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
+        };
+
+        setConfig(enrichedConfig);
         if (data.cleanCarImg) {
             console.log("DEBUG: Setting cleanCarImgUrl:", data.cleanCarImg);
             setCleanCarImgUrl(data.cleanCarImg);
@@ -1490,24 +1615,26 @@ function LandingPage() {
         };
 
         // 1. Silent direct frontend Supabase upsert (graceful fallback)
-        supabase
-          .from('leads')
-          .upsert(payload, { onConflict: 'session_id' })
-          .then(({ error }) => {
+        (async () => {
+          try {
+            const { error } = await supabase
+              .from('leads')
+              .upsert(payload, { onConflict: 'session_id' });
+            
             if (error) {
               const { city, ...cleanPayload } = payload;
-              supabase
+              const { error: retryErr } = await supabase
                 .from('leads')
-                .upsert(cleanPayload, { onConflict: 'session_id' })
-                .then(({ error: retryErr }) => {
-                  if (retryErr) {
-                    supabase.from('leads').insert(cleanPayload).catch(() => {});
-                  }
-                })
-                .catch(() => {});
+                .upsert(cleanPayload, { onConflict: 'session_id' });
+              
+              if (retryErr) {
+                await supabase.from('leads').insert(cleanPayload);
+              }
             }
-          })
-          .catch(() => {});
+          } catch (err) {
+            console.warn("Direct Supabase save failed, will fallback to backend.", err);
+          }
+        })();
 
         // 2. Fallback backend upsert/JSON file save to guarantee bypass of any client-side adblockers
         fetch('/api/leads', {
@@ -1590,6 +1717,13 @@ function LandingPage() {
   };
 
   const whatsapp = config?.whatsapp || "5547989229588";
+  const whatsappContact = config?.whatsapp_contact || config?.whatsapp || "5547989229588";
+
+  const formatWhatsappForUrl = (num: string) => {
+    const clean = num.replace(/\D/g, '');
+    if (!clean) return '';
+    return clean.startsWith('55') ? clean : '55' + clean;
+  };
 
   return (
     <div className="min-h-screen bg-[#236172] selection:bg-[#ffcc00] selection:text-[#236172] overflow-x-hidden relative">
@@ -1625,7 +1759,8 @@ function LandingPage() {
           
           <div className="absolute right-full mr-5 bottom-0 opacity-0 invisible group-hover:opacity-100 group-hover:visible focus-within:opacity-100 focus-within:visible transition-all duration-300 flex flex-col bg-gradient-to-br from-[#E1306C]/10 to-[#833AB4]/10 backdrop-blur-md border border-[#E1306C]/20 rounded-xl shadow-[0_0_20px_rgba(225,48,108,0.2)] overflow-hidden pointer-events-auto min-w-[140px] z-50 max-h-[70vh] overflow-y-auto">
             <div className="px-4 py-2 bg-[#E1306C]/20 text-[9px] font-black text-white/80 uppercase tracking-[0.2em] border-b border-[#E1306C]/20 text-center">INSTAGRAM</div>
-            <a href="https://www.instagram.com/prosul.venancioaires/" target="_blank" rel="noreferrer" className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white hover:text-white hover:bg-[#E1306C]/40 transition-colors text-center flex items-center justify-center gap-2 block w-full"><Instagram size={12}/> Venâncio Aires</a>
+            <a href="https://www.instagram.com/prosul.santacruzdosul" target="_blank" rel="noreferrer" className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white hover:text-white hover:bg-[#E1306C]/40 transition-colors text-center flex items-center justify-center gap-2 block w-full"><Instagram size={12}/> Santa Cruz</a>
+            <a href="https://www.instagram.com/prosul.venancioaires/" target="_blank" rel="noreferrer" className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white hover:text-white hover:bg-[#E1306C]/40 transition-colors text-center flex items-center justify-center gap-2 block w-full border-t border-[#E1306C]/10"><Instagram size={12}/> Venâncio Aires</a>
           </div>
         </motion.div>
       </div>
@@ -1650,12 +1785,13 @@ function LandingPage() {
               <span className="text-sm font-black uppercase tracking-[0.2em] text-white/50 hover:text-white transition-colors cursor-pointer flex items-center gap-1">
                 Localização <ChevronDown size={14} className="group-hover:rotate-180 transition-transform"/>
               </span>
-              <div className="absolute top-full left-0 mt-0 w-48 bg-[#236172] border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 flex flex-col overflow-hidden">
-                <a href="https://www.google.com/maps?vet=10CAAQoqAOahcKEwiQubGo-PWUAxUAAAAAHQAAAAAQGg..i&rlz=1C1VDKB_enBR1207BR1207&sca_esv=47b14df0f15d899c&pvq=Cg0vZy8xMXE0MDE1bnh5&fvr=1&cs=0&um=1&ie=UTF-8&fb=1&gl=br&sa=X&geocode=KcPkPLgaoxyVMUSiMHie3rXe&daddr=R.+Gaspar+Silveira+Martins,+2159+-+Margarida,+Santa+Cruz+do+Sul+-+RS,+96825-145" target="_blank" rel="noreferrer" className="px-4 py-3 text-xs font-black uppercase tracking-widest text-white/50 hover:text-[#ffcc00] hover:bg-white/5 transition-colors">Santa Cruz</a>
+              <div className="absolute top-full left-0 mt-0 w-56 bg-[#236172] border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 flex flex-col overflow-hidden z-50">
+                <a href="https://maps.app.goo.gl/8PHo1PiuD4yRZQQw7" target="_blank" rel="noreferrer" className="px-4 py-3 text-xs font-black uppercase tracking-widest text-[#ffcc00] hover:text-[#ffcc00] hover:bg-white/5 transition-colors border-b border-white/5">Santa Cruz</a>
+                <a href="https://maps.app.goo.gl/gRcegTnDFALeHDpr5" target="_blank" rel="noreferrer" className="px-4 py-3 text-xs font-black uppercase tracking-widest text-white/50 hover:text-[#ffcc00] hover:bg-white/5 transition-colors">Venâncio Aires</a>
               </div>
             </div>
 
-            <NavItem href={`https://wa.me/${whatsapp}`} target="_blank">Contato</NavItem>
+            <NavItem href={`https://wa.me/${formatWhatsappForUrl(whatsappContact)}`} target="_blank">Contato</NavItem>
           </nav>
 
           <div className="hidden lg:flex items-center gap-6">
@@ -1742,8 +1878,9 @@ function LandingPage() {
               >
                 {[
                   { label: 'Vantagens', id: '#beneficios' },
-                  { label: 'Localização (Santa Cruz)', id: 'https://www.google.com/maps?vet=10CAAQoqAOahcKEwiQubGo-PWUAxUAAAAAHQAAAAAQGg..i&rlz=1C1VDKB_enBR1207BR1207&sca_esv=47b14df0f15d899c&pvq=Cg0vZy8xMXE0MDE1bnh5&fvr=1&cs=0&um=1&ie=UTF-8&fb=1&gl=br&sa=X&geocode=KcPkPLgaoxyVMUSiMHie3rXe&daddr=R.+Gaspar+Silveira+Martins,+2159+-+Margarida,+Santa+Cruz+do+Sul+-+RS,+96825-145', external: true },
-                  { label: 'Contato', id: `https://wa.me/${whatsapp}`, external: true },
+                  { label: 'Santa Cruz do Sul', id: 'https://maps.app.goo.gl/8PHo1PiuD4yRZQQw7', external: true },
+                  { label: 'Venâncio Aires', id: 'https://maps.app.goo.gl/gRcegTnDFALeHDpr5', external: true },
+                  { label: 'Contato', id: `https://wa.me/${formatWhatsappForUrl(whatsappContact)}`, external: true },
                 ].map((item, idx) => (
                   <motion.div key={idx} variants={{
                     open: { opacity: 1, x: 0, scale: 1, rotate: 0 },
@@ -1884,7 +2021,7 @@ function LandingPage() {
                         const message = `Olá! Sou ${formData.name}. Gostaria de ver o valor da cotação para o meu perfil.${formData.vehicle ? ` Carro: ${formData.vehicle},` : ''} Meu contato é ${formData.phone}`;
                         const encoded = encodeURIComponent(message);
                         const whatsappNumber = config?.whatsapp || "5547989229588";
-                        window.open(`https://wa.me/${whatsappNumber}?text=${encoded}`, '_blank');
+                        window.open(`https://wa.me/${formatWhatsappForUrl(whatsappNumber)}?text=${encoded}`, '_blank');
                         setModalOpen(false);
                         setTimeout(() => setLeadStatus('idle'), 500);
                         setFormData({ name: '', phone: '', vehicle: '', plate: '', city: '' });
@@ -2188,7 +2325,6 @@ function LandingPage() {
                 { icon: Zap, title: "Colisão", desc: "Em caso de acidente, nós providenciamos o conserto do seu veículo." },
                 { icon: ShieldAlert, title: "Perda total", desc: "Se o estrago configurar Perda Total, nós iremos indenizá-lo por este prejuízo." },
                 { icon: Flame, title: "Incêndio", desc: "Com a gente o seu veículo fica protegido em casos de incêndio com indenização total ou parcial." },
-                { icon: CloudRain, title: "Fenômenos naturais", desc: "Se seu veículo for danificado por alagamentos, quedas de árvores ou chuvas de granizo, nós ressarcimos seu prejuízo." },
                 { icon: Map, title: "Cobertura em todo Brasil", desc: "Não importa onde aconteça o evento, você poderá contar conosco em todo o Brasil." },
                 { icon: Car, title: "Carro reserva", desc: "Disponha um carro reserva caso aconteça algum imprevisto e o seu precise ir para a oficina." },
                 { icon: Users, title: "Proteção para terceiros", desc: "Caso você se envolva em um acidente com outro veículo, os consertos são por nossa conta." },
@@ -2360,7 +2496,7 @@ function LandingPage() {
             <h5 className="font-black text-white uppercase tracking-widest text-xs">Filial especializada</h5>
             <ul className="text-white/30 text-xs space-y-4 uppercase tracking-[0.2em] font-black">
               <li>
-                <a href="https://www.google.com/maps?vet=10CAAQoqAOahcKEwiQubGo-PWUAxUAAAAAHQAAAAAQGg..i&rlz=1C1VDKB_enBR1207BR1207&sca_esv=47b14df0f15d899c&pvq=Cg0vZy8xMXE0MDE1bnh5&fvr=1&cs=0&um=1&ie=UTF-8&fb=1&gl=br&sa=X&geocode=KcPkPLgaoxyVMUSiMHie3rXe&daddr=R.+Gaspar+Silveira+Martins,+2159+-+Margarida,+Santa+Cruz+do+Sul+-+RS,+96825-145" target="_blank" rel="noreferrer" className="hover:text-[#ffcc00] transition-colors cursor-pointer block">Santa Cruz</a>
+                <a href="https://maps.app.goo.gl/8PHo1PiuD4yRZQQw7" target="_blank" rel="noreferrer" className="hover:text-[#ffcc00] transition-colors cursor-pointer block">Santa Cruz</a>
               </li>
             </ul>
           </div>
