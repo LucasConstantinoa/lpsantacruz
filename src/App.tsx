@@ -145,6 +145,25 @@ const AnimatedCheckmark = ({ size = 24 }: { size?: number }) => (
   </svg>
 );
 
+const saveConfigToLocalStorage = (configData: any) => {
+  if (!configData) return;
+  try {
+    const leanConfig = { ...configData };
+    if (typeof leanConfig.cleanCarImg === 'string' && (leanConfig.cleanCarImg.startsWith('data:') || leanConfig.cleanCarImg.length > 2000)) {
+      leanConfig.cleanCarImg = '';
+    }
+    if (typeof leanConfig.crashedCarImg === 'string' && (leanConfig.crashedCarImg.startsWith('data:') || leanConfig.crashedCarImg.length > 2000)) {
+      leanConfig.crashedCarImg = '';
+    }
+    localStorage.setItem('prosul-config', JSON.stringify(leanConfig));
+  } catch (err) {
+    console.warn("Could not save config to localStorage:", err);
+    try {
+      localStorage.removeItem('prosul-config');
+    } catch (_) {}
+  }
+};
+
 const NavItem = ({ href, children, mobile, onClick, target }: { href: string; children: React.ReactNode; mobile?: boolean; onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void; target?: string; }) => (
   <motion.a
     href={href}
@@ -497,17 +516,21 @@ function AdminDashboard() {
           if (data.benefits) {
             if (Array.isArray(data.benefits)) {
               benefitsArray = data.benefits;
-            } else if (typeof data.benefits === 'object') {
+            } else if (typeof data.benefits === 'object' && data.benefits !== null) {
               benefitsArray = data.benefits.items || [];
-              if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
-              if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+              if (!whatsapp_options || (Array.isArray(whatsapp_options) && whatsapp_options.length === 0)) {
+                whatsapp_options = data.benefits.whatsapp_options;
+              }
+              if (!whatsapp_contact) {
+                whatsapp_contact = data.benefits.whatsapp_contact;
+              }
             }
           }
 
           setConfig({
             ...data,
             benefits: benefitsArray,
-            whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
+            whatsapp_options: (whatsapp_options && whatsapp_options.length > 0) ? whatsapp_options : [data.whatsapp || '5547989229588'],
             whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
           });
         } else {
@@ -677,6 +700,17 @@ function AdminDashboard() {
 
         const { error: fallbackError } = await supabase.from('config').upsert(fallbackConfig);
         if (fallbackError) throw fallbackError;
+
+        // Keep local cache up to date also with fallback config structured properly
+        const enrichedLocal = {
+          ...fallbackConfig,
+          benefits: safeBenefits.items,
+          whatsapp_options: safeBenefits.whatsapp_options || [config.whatsapp],
+          whatsapp_contact: safeBenefits.whatsapp_contact || config.whatsapp
+        };
+        saveConfigToLocalStorage(enrichedLocal);
+      } else {
+        saveConfigToLocalStorage(config);
       }
       
       setSaveSuccess(true);
@@ -933,66 +967,6 @@ function AdminDashboard() {
                   {config.crashedCarImg && <img src={config.crashedCarImg} className="w-20 h-20 object-contain mt-2" alt="Preview"/>}
                 </div>
               </div>
-
-              <div className="space-y-4 pt-6 border-t border-white/10">
-                <h3 className="text-[#ffcc00] font-black uppercase tracking-widest text-sm">Integração Google Sheets</h3>
-                <p className="text-[10px] text-white/30 italic">Envie os leads automaticamente para uma planilha externa.</p>
-                
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-[#236172] p-6 rounded-3xl border border-white/5">
-                  <div className="flex-1 w-full space-y-1">
-                    <label className="text-[10px] font-black uppercase text-white/40 ml-2">Webhook URL (Google Apps Script)</label>
-                    <input 
-                      type="text"
-                      placeholder="https://script.google.com/macros/s/.../exec"
-                      value={config.google_sheets_url || ''}
-                      onChange={(e) => setConfig({ ...config, google_sheets_url: e.target.value })}
-                      className="w-full bg-[#2d7c91]/40 border border-white/5 rounded-xl py-3 px-4 text-white text-xs outline-none"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3 pt-2 sm:pt-0">
-                    <span className="text-[10px] font-black uppercase text-white/40">Status:</span>
-                    <button 
-                      onClick={() => setConfig({ ...config, google_sheets_active: !config.google_sheets_active })}
-                      className={cn("w-12 h-6 rounded-full transition-all relative", config.google_sheets_active ? "bg-[#25D366]" : "bg-white/10")}
-                    >
-                      <div className={cn("absolute top-1 w-4 h-4 rounded-full shadow-md bg-white transition-all", config.google_sheets_active ? "left-7" : "left-1")} />
-                    </button>
-                    <span className="text-[10px] font-black uppercase text-white/40">{config.google_sheets_active ? 'ATIVO' : 'INATIVO'}</span>
-                  </div>
-                </div>
-                
-                <div className="p-6 bg-white/5 rounded-3xl text-[10px] text-white/50 space-y-3 leading-relaxed border border-white/5">
-                  <p className="font-black text-[#ffcc00] uppercase tracking-widest">Guia de Configuração:</p>
-                  <ol className="list-decimal ml-4 space-y-2">
-                    <li>Crie uma Planilha no Google Sheets.</li>
-                    <li>Vá em <strong>Extensões</strong> {'>'} <strong>Apps Script</strong>.</li>
-                    <li>Apague tudo lá e cole este código (ele evita duplicados): 
-                      <pre className="bg-black/40 p-3 rounded-xl text-[#ffcc00] my-2 overflow-x-auto whitespace-pre-wrap font-mono text-[10px]">
-{`function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheets()[0];
-  var data = JSON.parse(e.postData.contents);
-  var values = sheet.getDataRange().getValues();
-  var rowIdx = -1;
-  for(var i=0; i<values.length; i++) {
-    if(values[i][6] == data.session_id) { rowIdx = i + 1; break; }
-  }
-  var rowData = [new Date(), data.name, data.phone, data.vehicle, data.plate, data.city, data.session_id];
-  if(rowIdx > 0) {
-    sheet.getRange(rowIdx, 1, 1, 7).setValues([rowData]);
-  } else {
-    sheet.appendRow(rowData);
-  }
-  return ContentService.createTextOutput("Success");
-}`}
-                      </pre>
-                    </li>
-                    <li>Clique em <strong>Implantar</strong> {'>'} <strong>Nova Implantação</strong>.</li>
-                    <li>Selecione "App da Web", coloque uma descrição, mude "Quem pode acessar" para <strong>"Qualquer Pessoa"</strong> e Implante.</li>
-                    <li>Copie a URL e cole acima.</li>
-                  </ol>
-                </div>
-              </div>
             </div>
 
             <div className="space-y-6">
@@ -1104,70 +1078,127 @@ function AdminDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {filteredLeads.map((lead, idx) => (
-                    <div key={idx} className={cn("bg-[#236172] border rounded-2xl p-6 flex flex-col md:flex-row gap-4 justify-between items-center transition-all", lead.called ? "border-green-500/30 opacity-60" : "border-white/5")}>
-                      <div className="flex items-center gap-6 w-full md:w-auto">
-                        <button 
-                          onClick={() => toggleCalled(lead.id, lead.called)}
-                          className={cn("w-10 h-10 rounded-full border flex items-center justify-center transition-all shrink-0", lead.called ? "bg-green-500 border-green-400 text-white" : "bg-white/5 border-white/10 text-white/20 hover:border-[#ffcc00]/50 hover:text-[#ffcc00]")}
-                          title={lead.called ? "Marcado como chamado" : "Marcar como chamado"}
-                        >
-                          <PhoneCall size={18} />
-                        </button>
-                        <div>
-                          <div className="flex items-center gap-3">
-                            <h4 className="text-white font-black text-lg">{lead.name || 'Sem nome (Digitando...)'}</h4>
-                            {lead.called && <span className="bg-green-500/20 text-green-400 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-green-500/20">Chamado</span>}
-                          </div>
-                          <p className="text-white/50 text-sm">{lead.phone || 'Sem telefone'}</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                            {lead.city && (
-                              <p className="text-white/70 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><MapPin size={10} className="text-[#ffcc00]" /> {lead.city}</p>
-                            )}
-                            {lead.vehicle && (
-                              <p className="text-[#ffcc00] text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><Car size={10} /> {lead.vehicle}</p>
-                            )}
-                            {lead.plate && (
-                              <p className="text-[#ffcc00] text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><Hash size={10} /> {lead.plate}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right w-full md:w-auto flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end gap-4">
-                        <p className="text-white/30 text-[10px] font-mono">
-                           {new Date(lead.date).toLocaleString('pt-BR')}
-                        </p>
-                        <div className="flex gap-2">
-                           {lead.phone && lead.phone.replace(/\D/g,'').length >= 10 ? (
-                            <a 
-                              href={`https://wa.me/${lead.phone.replace(/\D/g,'').startsWith('55') ? lead.phone.replace(/\D/g,'') : '55' + lead.phone.replace(/\D/g,'')}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => !lead.called && toggleCalled(lead.id, false)}
-                              className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors shadow-lg shadow-[#25D366]/20"
-                            >
-                              WhatsApp <ArrowRight size={14} />
-                            </a>
-                          ) : (
-                            <span className="inline-flex items-center gap-2 bg-white/10 text-white/30 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest cursor-not-allowed">
-                              WhatsApp <ArrowRight size={14} />
-                            </span>
-                          )}
+                  <AnimatePresence initial={false}>
+                    {filteredLeads.map((lead, idx) => {
+                      const leadTime = lead.date ? new Date(lead.date).getTime() : (lead.created_at ? new Date(lead.created_at).getTime() : 0);
+                      const isRecentlyCreated = leadTime > 0 && (Date.now() - leadTime) < 15000;
 
-                          <button 
-                            onClick={() => {
-                              console.log("Delete button clicked for lead:", lead);
-                              deleteLead(lead.id);
-                            }}
-                            className="w-10 h-10 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg flex items-center justify-center transition-all border border-red-500/20"
-                            title="Excluir Lead"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                      return (
+                        <motion.div 
+                          key={lead.id || lead.session_id || idx}
+                          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                          animate={{ 
+                            opacity: 1, 
+                            y: 0, 
+                            scale: 1,
+                            borderColor: isRecentlyCreated 
+                              ? ["rgba(255, 204, 0, 0.8)", "rgba(255, 204, 0, 0.8)", "rgba(255, 255, 255, 0.05)"]
+                              : lead.called ? "rgba(34, 197, 94, 0.3)" : "rgba(255, 255, 255, 0.05)",
+                            boxShadow: isRecentlyCreated
+                              ? [
+                                  "0 0 25px rgba(255, 204, 0, 0.4)",
+                                  "0 0 25px rgba(255, 204, 0, 0.4)",
+                                  "0 0 0px rgba(255, 204, 0, 0)"
+                                ]
+                              : "0 0 0px rgba(0,0,0,0)",
+                            backgroundColor: isRecentlyCreated
+                              ? [
+                                  "rgba(45, 124, 145, 0.9)",
+                                  "rgba(45, 124, 145, 0.9)",
+                                  "rgba(35, 97, 114, 1)"
+                                ]
+                              : "rgba(35, 97, 114, 1)"
+                          }}
+                          exit={{ opacity: 0, scale: 0.9, y: 10, height: 0, padding: 0, marginBottom: 0, overflow: 'hidden' }}
+                          transition={{ 
+                            opacity: { duration: 0.3 },
+                            scale: { duration: 0.3 },
+                            y: { duration: 0.3 },
+                            borderColor: { duration: 10, ease: "easeInOut" },
+                            boxShadow: { duration: 10, ease: "easeInOut" },
+                            backgroundColor: { duration: 10, ease: "easeInOut" },
+                            height: { duration: 0.2 },
+                            padding: { duration: 0.2 },
+                            marginBottom: { duration: 0.2 }
+                          }}
+                          className={cn(
+                            "bg-[#236172] border rounded-2xl p-6 flex flex-col md:flex-row gap-4 justify-between items-center transition-opacity", 
+                            lead.called ? "opacity-60" : "opacity-100"
+                          )}
+                        >
+                          <div className="flex items-center gap-6 w-full md:w-auto">
+                            <button 
+                              onClick={() => toggleCalled(lead.id, lead.called)}
+                              className={cn("w-10 h-10 rounded-full border flex items-center justify-center transition-all shrink-0", lead.called ? "bg-green-500 border-green-400 text-white" : "bg-white/5 border-white/10 text-white/20 hover:border-[#ffcc00]/50 hover:text-[#ffcc00]")}
+                              title={lead.called ? "Marcado como chamado" : "Marcar como chamado"}
+                            >
+                              <PhoneCall size={18} />
+                            </button>
+                            <div>
+                              <div className="flex items-center gap-3">
+                                <h4 className="text-white font-black text-lg">{lead.name || 'Sem nome (Digitando...)'}</h4>
+                                {lead.called && <span className="bg-green-500/20 text-green-400 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-green-500/20">Chamado</span>}
+                                {isRecentlyCreated && (
+                                  <motion.span 
+                                    animate={{ opacity: [0.4, 1, 0.4] }}
+                                    transition={{ repeat: Infinity, duration: 1.5 }}
+                                    className="bg-[#ffcc00] text-[#236172] text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+                                  >
+                                    Novo
+                                  </motion.span>
+                                )}
+                              </div>
+                              <p className="text-white/50 text-sm">{lead.phone || 'Sem telefone'}</p>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                                {lead.city && (
+                                  <p className="text-white/70 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><MapPin size={10} className="text-[#ffcc00]" /> {lead.city}</p>
+                                )}
+                                {lead.vehicle && (
+                                  <p className="text-[#ffcc00] text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><Car size={10} /> {lead.vehicle}</p>
+                                )}
+                                {lead.plate && (
+                                  <p className="text-[#ffcc00] text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><Hash size={10} /> {lead.plate}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right w-full md:w-auto flex flex-row md:flex-col justify-between md:justify-end items-center md:items-end gap-4">
+                            <p className="text-white/30 text-[10px] font-mono">
+                               {new Date(lead.date).toLocaleString('pt-BR')}
+                            </p>
+                            <div className="flex gap-2">
+                               {lead.phone && lead.phone.replace(/\D/g,'').length >= 10 ? (
+                                <a 
+                                  href={`https://wa.me/${lead.phone.replace(/\D/g,'').startsWith('55') ? lead.phone.replace(/\D/g,'') : '55' + lead.phone.replace(/\D/g,'')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() => !lead.called && toggleCalled(lead.id, false)}
+                                  className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors shadow-lg shadow-[#25D366]/20"
+                                >
+                                  WhatsApp <ArrowRight size={14} />
+                                </a>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 bg-white/10 text-white/30 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest cursor-not-allowed">
+                                  WhatsApp <ArrowRight size={14} />
+                                </span>
+                              )}
+
+                              <button 
+                                onClick={() => {
+                                  console.log("Delete button clicked for lead:", lead);
+                                  deleteLead(lead.id);
+                                }}
+                                className="w-10 h-10 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-lg flex items-center justify-center transition-all border border-red-500/20"
+                                title="Excluir Lead"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
                 </div>
               )}
           </div>
@@ -1533,21 +1564,26 @@ function LandingPage() {
         if (data.benefits) {
           if (Array.isArray(data.benefits)) {
             benefitsArray = data.benefits;
-          } else if (typeof data.benefits === 'object') {
+          } else if (typeof data.benefits === 'object' && data.benefits !== null) {
             benefitsArray = data.benefits.items || [];
-            if (!whatsapp_options) whatsapp_options = data.benefits.whatsapp_options;
-            if (!whatsapp_contact) whatsapp_contact = data.benefits.whatsapp_contact;
+            if (!whatsapp_options || (Array.isArray(whatsapp_options) && whatsapp_options.length === 0)) {
+              whatsapp_options = data.benefits.whatsapp_options;
+            }
+            if (!whatsapp_contact) {
+              whatsapp_contact = data.benefits.whatsapp_contact;
+            }
           }
         }
 
         const enrichedConfig = {
           ...data,
           benefits: benefitsArray,
-          whatsapp_options: whatsapp_options || [data.whatsapp || '5547989229588'],
+          whatsapp_options: (whatsapp_options && whatsapp_options.length > 0) ? whatsapp_options : [data.whatsapp || '5547989229588'],
           whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
         };
 
         setConfig(enrichedConfig);
+        saveConfigToLocalStorage(enrichedConfig);
         if (data.cleanCarImg) {
             console.log("DEBUG: Setting cleanCarImgUrl:", data.cleanCarImg);
             setCleanCarImgUrl(data.cleanCarImg);
@@ -1680,19 +1716,6 @@ function LandingPage() {
     }
   }, [formData, sessionId]);
 
-  useEffect(() => {
-    if (config?.google_sheets_active && config?.google_sheets_url && (formData.name || formData.phone || formData.vehicle || formData.plate || formData.city)) {
-      const timeoutId = setTimeout(() => {
-        fetch(config.google_sheets_url, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...formData, session_id: sessionId })
-        }).catch(() => {});
-      }, 5000); // 5 seconds debounce for sheets
-      return () => clearTimeout(timeoutId);
-    }
-  }, [formData, config?.google_sheets_url, config?.google_sheets_active, sessionId]);
 
   useEffect(() => {
     if (leadStatus === 'loading') {
@@ -1766,19 +1789,7 @@ function LandingPage() {
     setTimeout(() => {
       setLeadStatus('success');
       
-      // Enviar versão final para Google Sheets
-      if (config?.google_sheets_active && config?.google_sheets_url) {
-        fetch(config.google_sheets_url, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...formData,
-            session_id: sessionId,
-            status: 'final'
-          })
-        }).catch(() => {});
-      }
+
     }, 3000);
   };
 
