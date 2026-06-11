@@ -12,10 +12,8 @@ import { useGSAP } from '@gsap/react';
 
 gsap.registerPlugin(ScrollTrigger);
 
-// @ts-ignore
-import cleanCarImg from './assets/carro-novo.png';
-// @ts-ignore
-import crashedCarImg from './assets/carro-batido.png';
+const cleanCarImg = 'https://i.imgur.com/jQZATOb.png';
+const crashedCarImg = 'https://i.imgur.com/cXdNMwl.png';
 
 
 import { 
@@ -531,7 +529,9 @@ function AdminDashboard() {
             ...data,
             benefits: benefitsArray,
             whatsapp_options: (whatsapp_options && whatsapp_options.length > 0) ? whatsapp_options : [data.whatsapp || '5547989229588'],
-            whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588'
+            whatsapp_contact: whatsapp_contact || data.whatsapp || '5547989229588',
+            cleanCarImg: data.cleanCarImg || cleanCarImg,
+            crashedCarImg: data.crashedCarImg || crashedCarImg
           });
         } else {
           setConfig({ 
@@ -543,8 +543,8 @@ function AdminDashboard() {
               { id: '1', title: 'Assistência 24h', tooltip: 'Socorro elétrico, mecânico e reboque disponível 24 horas.' },
               { id: '2', title: 'Proteção contra Roubo', tooltip: 'Cobertura completa contra roubo e furto qualificado.' }
             ],
-            cleanCarImg: '',
-            crashedCarImg: '',
+            cleanCarImg: cleanCarImg,
+            crashedCarImg: crashedCarImg,
             google_sheets_url: '',
             google_sheets_active: false
           });
@@ -560,8 +560,8 @@ function AdminDashboard() {
             { id: '1', title: 'Assistência 24h', tooltip: 'Socorro elétrico, mecânico e reboque disponível 24 horas.' },
             { id: '2', title: 'Proteção contra Roubo', tooltip: 'Cobertura completa contra roubo e furto qualificado.' }
           ],
-          cleanCarImg: '',
-          crashedCarImg: '',
+          cleanCarImg: cleanCarImg,
+          crashedCarImg: crashedCarImg,
           google_sheets_url: '',
           google_sheets_active: false
         });
@@ -1584,14 +1584,8 @@ function LandingPage() {
 
         setConfig(enrichedConfig);
         saveConfigToLocalStorage(enrichedConfig);
-        if (data.cleanCarImg) {
-            console.log("DEBUG: Setting cleanCarImgUrl:", data.cleanCarImg);
-            setCleanCarImgUrl(data.cleanCarImg);
-        }
-        if (data.crashedCarImg) {
-            console.log("DEBUG: Setting crashedCarImgUrl:", data.crashedCarImg);
-            setCrashedCarImgUrl(data.crashedCarImg);
-        }
+        setCleanCarImgUrl(data.cleanCarImg || cleanCarImg);
+        setCrashedCarImgUrl(data.crashedCarImg || crashedCarImg);
       }
     };
     fetchConfig();
@@ -1601,8 +1595,8 @@ function LandingPage() {
       try {
         const parsed = JSON.parse(localConfig);
         setConfig(parsed);
-        if (parsed.cleanCarImg) setCleanCarImgUrl(parsed.cleanCarImg);
-        if (parsed.crashedCarImg) setCrashedCarImgUrl(parsed.crashedCarImg);
+        setCleanCarImgUrl(parsed.cleanCarImg || cleanCarImg);
+        setCrashedCarImgUrl(parsed.crashedCarImg || crashedCarImg);
       } catch (e) {
         setConfig(null);
       }
