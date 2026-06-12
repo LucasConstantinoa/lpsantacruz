@@ -482,17 +482,44 @@ function AdminDashboard() {
   const [loadingAdmins, setLoadingAdmins] = useState(false);
   const [cityFilter, setCityFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'called' | 'not_called'>('all');
+  const [dbError, setDbError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const localAdmin = localStorage.getItem('prosul-admin-session');
-      if (!session && !localAdmin) {
-        navigate('/admin');
-        return;
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn("Auth error detected during getSession:", error.message);
+          if (error.message?.includes('Refresh Token') || error.message?.includes('not found') || error.status === 400 || error.status === 401) {
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+              const key = localStorage.key(i);
+              if (key && (key.startsWith('sb-') || key.includes('supabase.auth'))) {
+                localStorage.removeItem(key);
+              }
+            }
+            localStorage.removeItem('prosul-admin-session');
+            await supabase.auth.signOut().catch(() => {});
+            navigate('/admin');
+            return;
+          }
+        }
+
+        const localAdmin = localStorage.getItem('prosul-admin-session');
+        if (!session && !localAdmin) {
+          navigate('/admin');
+          return;
+        }
+        loadConfig();
+      } catch (err) {
+        console.warn("Error running checkSession:", err);
+        const localAdmin = localStorage.getItem('prosul-admin-session');
+        if (!localAdmin) {
+          navigate('/admin');
+        } else {
+          loadConfig();
+        }
       }
-      loadConfig();
     };
     checkSession();
     
@@ -578,7 +605,11 @@ function AdminDashboard() {
         const { data, error } = await supabase
           .from('leads')
           .select('*');
-        if (!error && data) {
+        if (error) {
+          console.warn("Supabase returned error querying leads:", error.message);
+          setDbError("Erro de acesso no Supabase: " + error.message + " (" + error.code + ")");
+        } else if (data) {
+          setDbError(null);
           const sorted = [...data].sort((a, b) => {
             const dateA = new Date(a.date || a.created_at || 0).getTime();
             const dateB = new Date(b.date || b.created_at || 0).getTime();
@@ -587,8 +618,9 @@ function AdminDashboard() {
           setLeads(sorted);
           return;
         }
-      } catch (supabaseErr) {
+      } catch (supabaseErr: any) {
         console.error("Supabase direct query failed inside AdminDashboard, trying local API:", supabaseErr);
+        setDbError("Falha de conexão com o Supabase: " + (supabaseErr.message || supabaseErr));
       }
 
       // 2. Fallback to endpoint API
@@ -1071,6 +1103,24 @@ function AdminDashboard() {
                 </button>
               </div>
             </div>
+
+            {dbError && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-200 text-xs italic leading-relaxed space-y-1 shadow-lg"
+              >
+                <div className="font-black uppercase tracking-wider text-[10px] text-[#ffcc00] flex items-center gap-1.5">
+                  <ShieldAlert size={12} /> Diagnóstico de Conexão Supabase
+                </div>
+                <p>
+                  Não foi possível ler as leads diretamente da tabela do Supabase. Isto acontece se as políticas de RLS (Row Level Security) não permitirem acesso anônimo no banco de dados. {dbError}
+                </p>
+                <p className="text-[10px] text-white/40 mt-1">
+                  Se você for o administrador, certifique-se de aplicar o arquivo <code className="bg-black/30 px-1 py-0.5 rounded font-mono">supabase_unified.sql</code> no seu editor de SQL do Supabase.
+                </p>
+              </motion.div>
+            )}
 
               {filteredLeads.length === 0 ? (
                 <div className="p-10 border border-dashed border-white/20 rounded-3xl text-center text-white/50 font-light italic">
@@ -1705,7 +1755,7 @@ function LandingPage() {
         .then(res => res.json())
         .catch(() => {});
 
-      }, 50); // Gravar instantaneamente
+      }, 1200); // Salvar com debounce de 1.2 segundos após o usuário terminar de digitar
       
       return () => clearTimeout(timeoutId);
     }
@@ -1750,15 +1800,22 @@ function LandingPage() {
           .upsert(finalPayload, { onConflict: 'session_id' });
         
         if (error) {
-          console.warn("Direct upsert failed on final save, trying fallback without city column...", error.message);
-          const { city, ...cleanPayload } = finalPayload;
-          const { error: retryErr } = await supabase
+          console.warn("Direct upsert failed on final save, trying fallback insert with city...", error.message);
+          const { error: insertErr } = await supabase
             .from('leads')
-            .upsert(cleanPayload, { onConflict: 'session_id' });
+            .insert(finalPayload);
           
-          if (retryErr) {
-            console.error("Fallback upsert failed, trying direct insert...", retryErr.message);
-            await supabase.from('leads').insert(cleanPayload);
+          if (insertErr) {
+            console.error("Direct fallback insert failed, attempting clean upsert without city column...", insertErr.message);
+            const { city, ...cleanPayload } = finalPayload;
+            const { error: retryErr } = await supabase
+              .from('leads')
+              .upsert(cleanPayload, { onConflict: 'session_id' });
+            
+            if (retryErr) {
+              console.error("Fallback upsert failed, playing safe with clean insert...", retryErr.message);
+              await supabase.from('leads').insert(cleanPayload);
+            }
           }
         }
       } catch (err) {
@@ -2099,7 +2156,7 @@ function LandingPage() {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => {
-                        const message = `Olá! Sou ${formData.name}. Gostaria de ver o valor da cotação para o meu perfil.${formData.vehicle ? ` Carro: ${formData.vehicle},` : ''} Meu contato é ${formData.phone}`;
+                        const message = `Olá! Sou ${formData.name}. Gostaria de ver o valor da cotação para o meu perfil.${formData.plate ? ` Placa: ${formData.plate},` : ''} Meu contato é ${formData.phone}`;
                         const encoded = encodeURIComponent(message);
                         const whatsappNumber = config?.whatsapp || "5547989229588";
                         window.open(`https://wa.me/${formatWhatsappForUrl(whatsappNumber)}?text=${encoded}`, '_blank');
@@ -2177,14 +2234,14 @@ function LandingPage() {
                           <input 
                             required
                             type="text" 
-                            id="lead-vehicle"
+                            id="lead-plate"
                             placeholder=" "
-                            value={formData.vehicle}
-                            onChange={(e) => setFormData({...formData, vehicle: e.target.value})}
+                            value={formData.plate}
+                            onChange={(e) => setFormData({...formData, plate: e.target.value})}
                             className="peer w-full bg-white/[0.08] border border-white/20 rounded-2xl pt-7 pb-3 px-6 text-white font-medium focus:bg-white/[0.12] focus:border-[#ffcc00]/60 outline-none transition-all duration-300 shadow-inner"
                           />
-                          <label htmlFor="lead-vehicle" className="absolute left-6 top-5 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-white/50 transition-all duration-200 peer-focus:-translate-y-3 peer-focus:text-[9px] peer-focus:tracking-[0.3em] peer-focus:text-[#ffcc00] peer-valid:-translate-y-3 peer-valid:text-[9px] peer-valid:tracking-[0.3em] peer-valid:text-white/80 pointer-events-none">
-                            <Truck size={10} className="text-[#ffcc00] opacity-0 peer-focus:opacity-100 peer-valid:opacity-100 transition-opacity duration-300" /> Modelo do veículo
+                          <label htmlFor="lead-plate" className="absolute left-6 top-5 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-white/50 transition-all duration-200 peer-focus:-translate-y-3 peer-focus:text-[9px] peer-focus:tracking-[0.3em] peer-focus:text-[#ffcc00] peer-valid:-translate-y-3 peer-valid:text-[9px] peer-valid:tracking-[0.3em] peer-valid:text-white/80 pointer-events-none">
+                            <Hash size={10} className="text-[#ffcc00] opacity-0 peer-focus:opacity-100 peer-valid:opacity-100 transition-opacity duration-300" /> Placa do veículo
                           </label>
                         </div>
                       </div>
@@ -2326,10 +2383,10 @@ function LandingPage() {
                       <input 
                         required
                         type="text" 
-                        placeholder="Modelo do veículo"
+                        placeholder="Placa do veículo"
                         className="w-full bg-white/10 border border-white/20 rounded-xl py-4 px-5 text-white font-bold focus:bg-white/20 focus:border-[#ffcc00]/60 outline-none transition-all placeholder:text-white/60"
-                        value={formData.vehicle}
-                        onChange={(e) => setFormData({...formData, vehicle: e.target.value})}
+                        value={formData.plate}
+                        onChange={(e) => setFormData({...formData, plate: e.target.value})}
                       />
                     </div>
                     <motion.button 

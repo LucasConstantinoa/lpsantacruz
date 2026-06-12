@@ -22,8 +22,9 @@ CREATE TABLE IF NOT EXISTS public.leads (
     session_id TEXT UNIQUE
 );
 
--- Garantir coluna cidade caso a tabela já exista
+-- Garantir colunas adicionais caso a tabela já exista
 ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS plate TEXT;
 
 -- Tabela de Configurações
 CREATE TABLE IF NOT EXISTS public.config (
